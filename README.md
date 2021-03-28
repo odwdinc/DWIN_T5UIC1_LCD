@@ -36,14 +36,14 @@ To:
 ## Useage:
 
 ### Wire the display 
-  Display <-> Raspberry Pi 
-  Rx  =   14  (Tx)
-  Tx  =   15  (Rx)
-  Ent =   13
-  A   =   19
-  B   =   26
-  Vcc =   2   (5v)
-  Gnd =   6   (GND)
+  * Display <-> Raspberry Pi 
+  * Rx  =   14  (Tx)
+  * Tx  =   15  (Rx)
+  * Ent =   13
+  * A   =   19
+  * B   =   26
+  * Vcc =   2   (5v)
+  * Gnd =   6   (GND)
 
 ### Run The Code
 
