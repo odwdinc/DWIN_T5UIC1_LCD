@@ -1,9 +1,10 @@
 # DWIN_T5UIC1_LCD
 
-## Python class for the Ender 3 V2 LCD and klipper3d with OctoPrint
+## Python class for the Ender 3 V2 LCD runing klipper3d with OctoPrint / Moonraker 
 
 https://www.klipper3d.org
 https://octoprint.org/
+https://github.com/arksine/moonraker
 
 
 ## Setup:
@@ -32,16 +33,24 @@ To:
 
     KLIPPY_ARGS="/home/pi/klipper/klippy/klippy.py /home/pi/printer.cfg -a /tmp/klippy_uds -l /tmp/klippy.log"
 
+### Library requirements 
 
-## Useage:
+  Thanks to [wolfstlkr](https://www.reddit.com/r/ender3v2/comments/mdtjvk/octoprint_klipper_v2_lcd/gspae7y)
+
+  `sudo apt-get install python3-pip python3-gpiozero python3-serial git`
+
+  `sudo pip3 install multitimer`
+
+  `git clone https://github.com/odwdinc/DWIN_T5UIC1_LCD.git`
+
 
 ### Wire the display 
-  * Display <-> Raspberry Pi 
-  * Rx  =   14  (Tx)
-  * Tx  =   15  (Rx)
-  * Ent =   13
-  * A   =   19
-  * B   =   26
+  * Display <-> Raspberry Pi GPIO BCM
+  * Rx  =   GPIO14  (Tx)
+  * Tx  =   GPIO15  (Rx)
+  * Ent =   GPIO13
+  * A   =   GPIO19
+  * B   =   GPIO26
   * Vcc =   2   (5v)
   * Gnd =   6   (GND)
 
@@ -54,13 +63,13 @@ from dwinlcd import DWIN_LCD
 encoder_Pins = (26, 19)
 button_Pin = 13
 LCD_COM_Port = '/dev/ttyAMA0'
-OctoPrint_API_Key = 'XXXXXX'
+API_Key = 'XXXXXX'
 
 DWINLCD = DWIN_LCD(
 	LCD_COM_Port,
 	encoder_Pins,
 	button_Pin,
-	OctoPrint_API_Key
+	API_Key
 )
 ```
 
@@ -70,8 +79,8 @@ DWINLCD = DWIN_LCD(
 
  Print Menu:
  
-    * List / Print jobs from OctoPrint
-    * Auto swiching forom to Print Menu on job start / end.
+    * List / Print jobs from OctoPrint / Moonraker
+    * Auto swiching from to Print Menu on job start / end.
     * Display Print time, Progress, Temps, and Job name.
     * Pause / Resume / Cancle Job
     * Tune Menu: Print speed and Temps
