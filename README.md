@@ -58,6 +58,9 @@ To:
 
 ### Run The Code
 
+Enter the downloaded DWIN_T5UIC1_LCD folder.
+Make new file run.py and add
+
 ```python
 #!/usr/bin/env python3
 from dwinlcd import DWIN_LCD
@@ -74,6 +77,8 @@ DWINLCD = DWIN_LCD(
 	API_Key
 )
 ```
+
+Run with `python3 ./run.py`
 
 # Status:
 
