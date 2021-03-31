@@ -90,7 +90,7 @@ Run with `python3 ./run.py`
     * Auto swiching from to Print Menu on job start / end.
     * Display Print time, Progress, Temps, and Job name.
     * Pause / Resume / Cancle Job
-    * Tune Menu: Print speed and Temps
+    * Tune Menu: Print speed , Temps, * z offset (PROBE_CALIBRATE)
 
  Perpare Menu:
  
@@ -105,7 +105,5 @@ Run with `python3 ./run.py`
     * Shows printer info.
 
 ## Notworking:
-
-    * z offset
     * Save / Loding Preheat setting, hardcode on start can be changed in menu but will not retane on restart.
     * The Control: Motion Menu
