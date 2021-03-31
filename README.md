@@ -90,13 +90,14 @@ Run with `python3 ./run.py`
     * Auto swiching from to Print Menu on job start / end.
     * Display Print time, Progress, Temps, and Job name.
     * Pause / Resume / Cancle Job
-    * Tune Menu: Print speed , Temps, * z offset (PROBE_CALIBRATE)
+    * Tune Menu: Print speed & Temps
 
  Perpare Menu:
  
     * Move / Jog toolhead
     * Disable stepper
     * Auto Home
+    * Z offset (PROBE_CALIBRATE)
     * Preheat
     * cooldown
  
