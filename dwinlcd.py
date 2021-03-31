@@ -1,5 +1,7 @@
 import time
 import multitimer
+import atexit
+
 from encoder import Encoder
 from RPi import GPIO
 
@@ -314,8 +316,24 @@ class DWIN_LCD:
 		self.lcd = T5UIC1_LCD(USARTx)
 		self.timer = multitimer.MultiTimer(interval=2, function=self.EachMomentUpdate)
 		self.pd = PrinterData(octoPrint_API_Key)
+		self.HMI_ShowBoot()
+		print("Boot looks good")
+		print("Testing Web-services")
+		self.pd.init_Webservices()
+		while self.pd.status is None:
+			print("No Web-services")
+			self.pd.init_Webservices()
+			self.HMI_ShowBoot("Web-service still loading")
 		self.HMI_Init()
 		self.HMI_StartFrame(False)
+
+	def lcdExit(self):
+		print("Shutting down the LCD")
+		self.JPG_ShowAndCache(0)
+		self.Frame_SetDir(1)
+		self.UpdateLCD()
+		self.timer.stop()
+		GPIO.remove_event_detect(self.button_pin)
 
 	def MBASE(self, L):
 		return 49 + self.MLINE * L
@@ -326,23 +344,34 @@ class DWIN_LCD:
 	def HMI_SetLanguage(self):
 		self.HMI_SetLanguageCache()
 
-	def HMI_Init(self):
-		# HMI_SDCardInit()
-
+	def HMI_ShowBoot(self, mesg=None):
+		if mesg:
+			self.lcd.Draw_String(
+				False, False, self.lcd.DWIN_FONT_STAT,
+				self.lcd.Color_White, self.lcd.Color_Bg_Black,
+				10, 50,
+				mesg
+			)
 		for t in range(0, 100, 2):
 			self.lcd.ICON_Show(self.ICON, self.ICON_Bar, 15, 260)
 			self.lcd.Draw_Rectangle(1, self.lcd.Color_Bg_Black, 15 + t * 242 / 100, 260, 257, 280)
 			self.lcd.UpdateLCD()
 			time.sleep(.020)
 
+	def HMI_Init(self):
+		# HMI_SDCardInit()
+
 		self.HMI_SetLanguage()
 		self.timer.start()
+		atexit.register(self.lcdExit)
 
 	def HMI_StartFrame(self, with_update):
 		self.last_status = self.pd.status
 		if self.pd.status == "Printing":
 			self.Goto_PrintProcess()
 		elif self.pd.status == "Operational":
+			self.Goto_MainMenu()
+		else:
 			self.Goto_MainMenu()
 		self.Draw_Status_Area(with_update)
 

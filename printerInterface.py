@@ -4,6 +4,8 @@ import select
 import socket
 import json
 import requests
+from requests.exceptions import ConnectionError
+import atexit
 
 
 class xyze_t:
@@ -96,12 +98,19 @@ class klippySocket:
 		self.webhook_socket_create(uds_filename)
 		self.lock = threading.Lock()
 		self.poll = select.poll()
+		self.stop_threads = False
 		self.poll.register(self.webhook_socket, select.POLLIN | select.POLLHUP)
 		self.socket_data = ""
 		self.t = threading.Thread(target=self.polling)
 		self.callback = callback
 		self.lines = []
 		self.t.start()
+		atexit.register(self.klippyExit)
+
+	def klippyExit(self):
+		print("Shuting down Klippy Socket")
+		self.stop_threads = True
+		self.t.join()
 
 	def webhook_socket_create(self, uds_filename):
 		self.webhook_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -156,6 +165,8 @@ class klippySocket:
 
 	def polling(self):
 		while True:
+			if self.stop_threads:
+				break
 			res = self.poll.poll(1000.)
 			for fd, event in res:
 				self.process_socket()
@@ -237,19 +248,9 @@ class PrinterData:
 
 	def __init__(self, octoPrint_API_Key, octoPrint_URL='127.0.0.1'):
 		self.op = octoprintSocket(octoPrint_URL, 80, octoPrint_API_Key)
+		self.status = None
 		print(self.op.base_address)
 		self.ks = klippySocket('/tmp/klippy_uds', callback=self.klippy_callback)
-		self.update_variable()
-		print(self.status)
-		ppp = self.getREST('/api/printerprofiles/_default')
-		self.SHORT_BUILD_VERSION = ppp['model']
-		self.MACHINE_SIZE = "{}x{}x{}".format(
-			int(ppp['volume']['depth']),
-			int(ppp['volume']['width']),
-			int(ppp['volume']['height'])
-		)
-		self.X_MAX_POS = int(ppp['volume']['width'])
-		self.Y_MAX_POS = int(ppp['volume']['depth'])
 		subscribe = {
 			"id": 4001,
 			"method": "objects/subscribe",
@@ -331,10 +332,36 @@ class PrinterData:
 
 	def getREST(self, path):
 		r = self.op.s.get(self.op.base_address + path)
-		return json.loads(r.content.decode('utf-8'))
+		d = r.content.decode('utf-8')
+		try:
+			return json.loads(d)
+		except JSONDecodeError:
+			print('Decoding JSON has failed')
+		return None
 
 	def postREST(self, path, json):
 		self.op.s.post(self.op.base_address + path, json=json)
+
+	def init_Webservices(self):
+		try:
+			requests.get(self.op.base_address)
+		except ConnectionError:
+			print('Web site does not exist')
+			return
+		else:
+			print('Web site exists')
+		if self.getREST('/api/printer') is None:
+			return
+		self.update_variable()
+		ppp = self.getREST('/api/printerprofiles/_default')
+		self.SHORT_BUILD_VERSION = ppp['model']
+		self.MACHINE_SIZE = "{}x{}x{}".format(
+			int(ppp['volume']['depth']),
+			int(ppp['volume']['width']),
+			int(ppp['volume']['height'])
+		)
+		self.X_MAX_POS = int(ppp['volume']['width'])
+		self.Y_MAX_POS = int(ppp['volume']['depth'])
 
 	def GetFiles(self, refresh=False):
 		if not self.fliles or refresh:
@@ -347,25 +374,32 @@ class PrinterData:
 	def update_variable(self):
 		self.state = self.getREST('/api/printer')
 		Update = False
-		if self.thermalManager['temp_bed']['celsius'] != int(self.state["temperature"]["bed"]["actual"]):
-			self.thermalManager['temp_bed']['celsius'] = int(self.state["temperature"]["bed"]["actual"])
-			Update = True
+		if self.state:
+			if "temperature" in self.state:
+				if self.state["temperature"]["bed"]["actual"]:
+					if self.thermalManager['temp_bed']['celsius'] != int(self.state["temperature"]["bed"]["actual"]):
+						self.thermalManager['temp_bed']['celsius'] = int(self.state["temperature"]["bed"]["actual"])
+						Update = True
 
-		if self.thermalManager['temp_bed']['target'] != int(self.state["temperature"]["bed"]["target"]):
-			self.thermalManager['temp_bed']['target'] = int(self.state["temperature"]["bed"]["target"])
-			Update = True
+				if self.state["temperature"]["bed"]["target"]:
+					if self.thermalManager['temp_bed']['target'] != int(self.state["temperature"]["bed"]["target"]):
+						self.thermalManager['temp_bed']['target'] = int(self.state["temperature"]["bed"]["target"])
+						Update = True
 
-		if self.thermalManager['temp_hotend'][0]['target'] != int(self.state["temperature"]["tool0"]["target"]):
-			self.thermalManager['temp_hotend'][0]['target'] = int(self.state["temperature"]["tool0"]["target"])
-			Update = True
+				if self.state["temperature"]["tool0"]["target"]:
+					if self.thermalManager['temp_hotend'][0]['target'] != int(self.state["temperature"]["tool0"]["target"]):
+						self.thermalManager['temp_hotend'][0]['target'] = int(self.state["temperature"]["tool0"]["target"])
+						Update = True
 
-		if self.thermalManager['temp_hotend'][0]['celsius'] != int(self.state["temperature"]["tool0"]["actual"]):
-			self.thermalManager['temp_hotend'][0]['celsius'] = int(self.state["temperature"]["tool0"]["actual"])
-			Update = True
+				if self.state["temperature"]["tool0"]["actual"]:
+					if self.thermalManager['temp_hotend'][0]['celsius'] != int(self.state["temperature"]["tool0"]["actual"]):
+						self.thermalManager['temp_hotend'][0]['celsius'] = int(self.state["temperature"]["tool0"]["actual"])
+						Update = True
 		self.job_Info = self.getREST('/api/job')
-		self.file_name = self.job_Info['job']['file']['name']
-		self.status = self.job_Info['state']
-		self.HMI_flag.print_finish = self.getPercent() == 100.0
+		if self.job_Info:
+			self.file_name = self.job_Info['job']['file']['name']
+			self.status = self.job_Info['state']
+			self.HMI_flag.print_finish = self.getPercent() == 100.0
 		return Update
 
 	def printingIsPaused(self):

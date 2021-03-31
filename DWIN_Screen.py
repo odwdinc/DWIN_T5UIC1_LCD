@@ -2,7 +2,6 @@ import time
 import math
 import serial
 import struct
-from smbus2 import SMBus
 
 
 class T5UIC1_LCD:
