@@ -280,8 +280,8 @@ class DWIN_LCD:
 	TUNE_CASE_SPEED = 1
 	TUNE_CASE_TEMP = (TUNE_CASE_SPEED + 1)
 	TUNE_CASE_BED = (TUNE_CASE_TEMP + 1)
-	TUNE_CASE_FAN = (TUNE_CASE_BED + 1)
-	TUNE_CASE_ZOFF = (TUNE_CASE_FAN + 1)
+	TUNE_CASE_FAN = (TUNE_CASE_BED + 0)
+	TUNE_CASE_ZOFF = (TUNE_CASE_FAN + 0)
 	TUNE_CASE_TOTAL = TUNE_CASE_ZOFF
 
 	TEMP_CASE_TEMP = (0 + 1)
@@ -543,8 +543,11 @@ class DWIN_LCD:
 				self.Popup_Window_Home()
 			elif self.select_prepare.now == self.PREPARE_CASE_ZOFF:  # Z-offset
 				self.checkkey = self.Homeoffset
+				self.pd.probe_calibrate()
 				self.pd.HMI_ValueStruct.show_mode = -4
 				self.pd.HMI_ValueStruct.offset_value = self.pd.BABY_Z_VAR * 100
+				self.dwin_zoffset = self.pd.HMI_ValueStruct.offset_value / 100.0
+
 				self.lcd.Draw_Signed_Float(
 					self.lcd.font8x16, self.lcd.Select_Color, 2, 2, 202,
 					self.MBASE(self.PREPARE_CASE_ZOFF + self.MROWS - self.index_prepare),
@@ -1447,10 +1450,7 @@ class DWIN_LCD:
 
 		self.last_zoffset = self.dwin_zoffset
 		self.dwin_zoffset = self.pd.HMI_ValueStruct.offset_value / 100.0
-		# #if EITHER(BABYSTEP_ZPROBE_OFFSET, JUST_BABYSTEP)
-		#   if ( (ENABLED(BABYSTEP_WITHOUT_HOMING) || all_axes_known()) && (ENABLED(BABYSTEP_ALWAYS_AVAILABLE) || printer_busy()) )
-		#     babystep.add_mm(Z_AXIS, dwin_zoffset - last_zoffset);
-		# #endif
+		self.pd.add_mm('Z', self.dwin_zoffset - self.last_zoffset)
 		self.lcd.Draw_Signed_Float(
 			self.lcd.font8x16, self.lcd.Select_Color, 2, 2, 202,
 			self.MBASE(zoff_line),
@@ -1752,10 +1752,10 @@ class DWIN_LCD:
 		if self.pd.HAS_HEATED_BED:
 			self.lcd.Frame_AreaCopy(1, 240, 104, 264, 114, self.LBLX, self.MBASE(self.TUNE_CASE_BED))  # Bed...
 			self.lcd.Frame_AreaCopy(1, 1, 89, 83, 101, self.LBLX + 27, self.MBASE(self.TUNE_CASE_BED))  # ...Temperature
-		if self.pd.HAS_FAN:
-			self.lcd.Frame_AreaCopy(1, 0, 119, 64, 132, self.LBLX, self.MBASE(self.TUNE_CASE_FAN))  # Fan speed
-		if self.pd.HAS_ZOFFSET_ITEM:
-			self.lcd.Frame_AreaCopy(1, 93, 179, 141, 189, self.LBLX, self.MBASE(self.TUNE_CASE_ZOFF))  # Z-offset
+		# if self.pd.HAS_FAN:
+		# 	self.lcd.Frame_AreaCopy(1, 0, 119, 64, 132, self.LBLX, self.MBASE(self.TUNE_CASE_FAN))  # Fan speed
+		# if self.pd.HAS_ZOFFSET_ITEM:
+		# 	self.lcd.Frame_AreaCopy(1, 93, 179, 141, 189, self.LBLX, self.MBASE(self.TUNE_CASE_ZOFF))  # Z-offset
 		self.Draw_Back_First(self.select_tune.now == 0)
 		if (self.select_tune.now):
 			self.Draw_Menu_Cursor(self.select_tune.now)
@@ -1777,18 +1777,18 @@ class DWIN_LCD:
 			self.lcd.Draw_IntValue(
 				True, True, 0, self.lcd.font8x16, self.lcd.Color_White, self.lcd.Color_Bg_Black,
 				3, 216, self.MBASE(self.TUNE_CASE_BED), self.pd.thermalManager['temp_bed']['target'])
-		if self.pd.HAS_FAN:
-			self.Draw_Menu_Line(self.TUNE_CASE_FAN, self.ICON_FanSpeed)
-			self.lcd.Draw_IntValue(
-				True, True, 0, self.lcd.font8x16, self.lcd.Color_White, self.lcd.Color_Bg_Black,
-				3, 216, self.MBASE(self.TUNE_CASE_FAN),
-				self.pd.thermalManager['fan_speed'][0]
-			)
-		if self.pd.HAS_ZOFFSET_ITEM:
-			self.Draw_Menu_Line(self.TUNE_CASE_ZOFF, self.ICON_Zoffset)
-			self.lcd.Draw_Signed_Float(
-				self.lcd.font8x16, self.lcd.Color_Bg_Black, 2, 2, 202, self.MBASE(self.TUNE_CASE_ZOFF), self.pd.BABY_Z_VAR * 100
-			)
+		# if self.pd.HAS_FAN:
+		# 	self.Draw_Menu_Line(self.TUNE_CASE_FAN, self.ICON_FanSpeed)
+		# 	self.lcd.Draw_IntValue(
+		# 		True, True, 0, self.lcd.font8x16, self.lcd.Color_White, self.lcd.Color_Bg_Black,
+		# 		3, 216, self.MBASE(self.TUNE_CASE_FAN),
+		# 		self.pd.thermalManager['fan_speed'][0]
+		# 	)
+		# if self.pd.HAS_ZOFFSET_ITEM:
+		# 	self.Draw_Menu_Line(self.TUNE_CASE_ZOFF, self.ICON_Zoffset)
+		# 	self.lcd.Draw_Signed_Float(
+		# 		self.lcd.font8x16, self.lcd.Color_Bg_Black, 2, 2, 202, self.MBASE(self.TUNE_CASE_ZOFF), self.pd.BABY_Z_VAR * 100
+		# 	)
 
 	def Draw_Temperature_Menu(self):
 		self.Clear_Main_Window()

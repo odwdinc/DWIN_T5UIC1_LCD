@@ -315,6 +315,17 @@ class PrinterData:
 	def offset_z(self, new_offset):
 		print('new z offset:', new_offset)
 		self.BABY_Z_VAR = new_offset
+		self.queue('ACCEPT')
+
+	def add_mm(self, axs, new_offset):
+		gc = 'TESTZ Z={}'.format(new_offset)
+		print(axs, gc)
+		self.queue(gc)
+
+	def probe_calibrate(self):
+		self.queue('G28')
+		self.queue('PROBE_CALIBRATE')
+		self.queue('G1 Z0')
 
 	# ------------- OctoPrint Function ----------
 

@@ -1,10 +1,12 @@
 import time
-import serial
 import math
+import serial
 import struct
+from smbus2 import SMBus
 
 
 class T5UIC1_LCD:
+	address = 0x2A
 	DWIN_BufTail = [0xCC, 0x33, 0xC3, 0x3C]
 	DWIN_SendBuf = []
 	databuf = [None] * 26
@@ -56,7 +58,8 @@ class T5UIC1_LCD:
 	# DWIN screen uses serial port 1 to send
 	def __init__(self, USARTx):
 		self.MYSERIAL1 = serial.Serial(USARTx, 115200, timeout=1)
-		self.DWIN_SendBuf = self.FHONE
+		# self.bus = SMBus(1)
+		# self.DWIN_SendBuf = self.FHONE
 		print("\nDWIN handshake ")
 		while not self.Handshake():
 			pass
@@ -82,10 +85,22 @@ class T5UIC1_LCD:
 
 	# Send the data in the buffer and the packet end
 	def Send(self):
+		# for i in self.DWIN_BufTail:
+		# 	self.Byte(i)
+		# self.bus.write_i2c_block_data(self.address, 0, self.DWIN_SendBuf)
+		# self.bus.write_i2c_block_data(self.address, 0, self.DWIN_BufTail)
+
 		self.MYSERIAL1.write(self.DWIN_SendBuf)
 		self.MYSERIAL1.write(self.DWIN_BufTail)
+
 		self.DWIN_SendBuf = self.FHONE
-		time.sleep(0.01)
+		time.sleep(0.001)
+
+	def Read(self, lend=1):
+		bit = self.bus.read_i2c_block_data(self.address, 0, lend)
+		if lend == 1:
+			return bytes(bit)
+		return bit
 
 	# /*-------------------------------------- System variable function --------------------------------------*/
 
@@ -94,8 +109,12 @@ class T5UIC1_LCD:
 		i = 0
 		self.Byte(0x00)
 		self.Send()
+		time.sleep(0.1)
+		# while (self.recnum < 26):
 		while (self.MYSERIAL1.in_waiting and self.recnum < 26):
+			# self.databuf[self.recnum] = struct.unpack('B', self.Read())[0]
 			self.databuf[self.recnum] = struct.unpack('B', self.MYSERIAL1.read())[0]
+
 			# ignore the invalid data
 			if self.databuf[0] != 0xAA:  # prevent the program from running.
 				if(self.recnum > 0):
