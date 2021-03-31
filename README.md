@@ -80,6 +80,28 @@ DWINLCD = DWIN_LCD(
 
 Run with `python3 ./run.py`
 
+# Run at boot:
+
+	Note: Delay of 30s after boot to allow webservices to settal.
+	
+	path of `run.py` is expected to be `/home/pi/DWIN_T5UIC1_LCD/run.py`
+
+   `sudo chmod +x run.py`
+   
+   `sudo chmod +x simpleLCD.service`
+   
+   `sudo mv simpleLCD.service /lib/systemd/system/simpleLCD.service`
+   
+   `sudo chmod 644 /lib/systemd/system/simpleLCD.service`
+   
+   `sudo systemctl daemon-reload`
+   
+   `sudo systemctl enable simpleLCD.service`
+   
+   `sudo reboot`
+   
+   
+
 # Status:
 
 ## Working:
