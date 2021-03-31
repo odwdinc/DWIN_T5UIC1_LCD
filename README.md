@@ -83,6 +83,8 @@ Run with `python3 ./run.py`
 # Run at boot:
 
 	Note: Delay of 30s after boot to allow webservices to settal.
+	
+	path of `run.py` is expected to be `/home/pi/DWIN_T5UIC1_LCD/run.py`
 
    `sudo chmod +x run.py`
    
