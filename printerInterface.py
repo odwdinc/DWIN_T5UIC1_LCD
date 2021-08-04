@@ -6,6 +6,7 @@ import json
 import requests
 from requests.exceptions import ConnectionError
 import atexit
+import time
 
 
 class xyze_t:
@@ -241,7 +242,7 @@ class PrinterData:
 		material_preset_t('PLA', 180, 60),
 		material_preset_t('ABS', 210, 100)
 	]
-	fliles = None
+	files = None
 	MACHINE_SIZE = "220x220x250"
 	SHORT_BUILD_VERSION = "1.00"
 	CORP_WEBSITE_E = "https://www.klipper3d.org/"
@@ -353,106 +354,127 @@ class PrinterData:
 		if self.getREST('/api/printer') is None:
 			return
 		self.update_variable()
-		ppp = self.getREST('/api/printerprofiles/_default')
-		self.SHORT_BUILD_VERSION = ppp['model']
+		#alternative approach
+		#full_version = self.getREST('/printer/info')['result']['software_version']
+		#self.SHORT_BUILD_VERSION = '-'.join(full_version.split('-',2)[:2])
+		self.SHORT_BUILD_VERSION = self.getREST('/machine/update/status?refresh=false')['result']['version_info']['klipper']['version']
+
+		data = self.getREST('/printer/objects/query?toolhead')['result']['status']
+		toolhead = data['toolhead']
+		volume = toolhead['axis_maximum'] #[x,y,z,w]
 		self.MACHINE_SIZE = "{}x{}x{}".format(
-			int(ppp['volume']['depth']),
-			int(ppp['volume']['width']),
-			int(ppp['volume']['height'])
+			int(volume[0]),
+			int(volume[1]),
+			int(volume[2])
 		)
-		self.X_MAX_POS = int(ppp['volume']['width'])
-		self.Y_MAX_POS = int(ppp['volume']['depth'])
+		self.X_MAX_POS = int(volume[0])
+		self.Y_MAX_POS = int(volume[1])
 
 	def GetFiles(self, refresh=False):
-		if not self.fliles or refresh:
-			self.fliles = self.getREST('/api/files')["files"]
+		if not self.files or refresh:
+			self.files = self.getREST('/server/files/list')["result"]
 		names = []
-		for fl in self.fliles:
-			names.append(fl["display"])
+		for fl in self.files:
+			names.append(fl["path"])
 		return names
 
 	def update_variable(self):
-		self.state = self.getREST('/api/printer')
+		query = '/printer/objects/query?virtual_sdcard&print_stats&extruder&heater_bed&gcode_move&fan'
+		data = self.getREST(query)['result']['status']
+		gcm = data['gcode_move']
+		z_offset = gcm['homing_origin'][2] #z offset
+		flow_rate = gcm['extrude_factor'] * 100 #flow rate percent
+		absolute_moves = gcm['absolute_coordinates'] #absolute or relative
+		absolute_extrude = gcm['absolute_extrude'] #absolute or relative
+		speed = gcm['speed'] #current speed in mm/s
+		print_speed = gcm['speed_factor'] * 100 #print speed percent
+		bed = data['heater_bed'] #temperature, target
+		extruder = data['extruder'] #temperature, target
+		fan = data['fan']
 		Update = False
-		if self.state:
-			if "temperature" in self.state:
-				if self.state["temperature"]["bed"]["actual"]:
-					if self.thermalManager['temp_bed']['celsius'] != int(self.state["temperature"]["bed"]["actual"]):
-						self.thermalManager['temp_bed']['celsius'] = int(self.state["temperature"]["bed"]["actual"])
-						Update = True
-
-				if self.state["temperature"]["bed"]["target"]:
-					if self.thermalManager['temp_bed']['target'] != int(self.state["temperature"]["bed"]["target"]):
-						self.thermalManager['temp_bed']['target'] = int(self.state["temperature"]["bed"]["target"])
-						Update = True
-
-				if self.state["temperature"]["tool0"]["target"]:
-					if self.thermalManager['temp_hotend'][0]['target'] != int(self.state["temperature"]["tool0"]["target"]):
-						self.thermalManager['temp_hotend'][0]['target'] = int(self.state["temperature"]["tool0"]["target"])
-						Update = True
-
-				if self.state["temperature"]["tool0"]["actual"]:
-					if self.thermalManager['temp_hotend'][0]['celsius'] != int(self.state["temperature"]["tool0"]["actual"]):
-						self.thermalManager['temp_hotend'][0]['celsius'] = int(self.state["temperature"]["tool0"]["actual"])
-						Update = True
-		self.job_Info = self.getREST('/api/job')
+		try:
+			if self.thermalManager['temp_bed']['celsius'] != int(bed['temperature']):
+				self.thermalManager['temp_bed']['celsius'] = int(bed['temperature'])
+				Update = True
+			if self.thermalManager['temp_bed']['target'] != int(bed['target']):
+				self.thermalManager['temp_bed']['target'] = int(bed['target'])
+				Update = True
+			if self.thermalManager['temp_hotend'][0]['celsius'] != int(extruder['temperature']):
+				self.thermalManager['temp_hotend'][0]['celsius'] = int(extruder['temperature'])
+				Update = True
+			if self.thermalManager['temp_hotend'][0]['target'] != int(extruder['target']):
+				self.thermalManager['temp_hotend'][0]['target'] = int(extruder['target'])
+				Update = True
+			if self.thermalManager['fan_speed'][0] != int(fan['speed'] * 100):
+				self.thermalManager['fan_speed'][0] = int(fan['speed'] * 100)
+				Update = True
+			if self.BABY_Z_VAR != z_offset:
+				self.BABY_Z_VAR = z_offset
+				Update = True
+		except:
+			pass #missing key, shouldn't happen, fixes misses on conditionals ¯\_(ツ)_/¯
+		self.job_Info = self.getREST('/printer/objects/query?virtual_sdcard&print_stats')['result']['status']
 		if self.job_Info:
-			self.file_name = self.job_Info['job']['file']['name']
-			self.status = self.job_Info['state']
+			self.file_name = self.job_Info['print_stats']['filename']
+			self.status = self.job_Info['print_stats']['state']
 			self.HMI_flag.print_finish = self.getPercent() == 100.0
 		return Update
 
 	def printingIsPaused(self):
-		return self.job_Info['state'] == "Paused" or self.job_Info['state'] == "Pausing"
+		return self.job_Info['print_stats']['state'] == "paused" or self.job_Info['print_stats']['state'] == "pausing"
 
 	def getPercent(self):
-		if self.job_Info["progress"]["completion"]:
-			return self.job_Info["progress"]["completion"]
+		if self.job_Info['virtual_sdcard']['is_active']:
+			return self.job_Info['virtual_sdcard']['progress'] * 100
 		else:
 			return 0
 
 	def duration(self):
-		if self.job_Info["progress"]["printTimeLeft"]:
-			return self.job_Info["progress"]["printTime"]
+		if self.job_Info['virtual_sdcard']['is_active']:
+			return self.job_Info['print_stats']['print_duration']
 		return 0
 
 	def remain(self):
-		if self.job_Info["progress"]["printTimeLeft"]:
-			return self.job_Info["progress"]["printTimeLeft"]
-		return self.job_Info["progress"]["printTime"]
+		percent = self.getPercent()
+		duration = self.duration()
+		if percent:
+			total = duration / (percent / 100)
+			return total - duration
+		return 0
 
 	def openAndPrintFile(self, filenum):
-		self.file_name = self.fliles[filenum]["name"]
-		self.postREST('/api/files/local/' + self.file_name, json={'command': 'select', 'print': True})
+		self.file_name = self.files[filenum]['path']
+		self.postREST('/printer/print/start', json={'filename': self.file_name})
 
 	def queue(self, gcode):
 		print('Sending gcode: ', gcode)
 		self.postREST('/api/printer/command', json={'command': gcode})
 
-	def cancel_job(self):
+	def cancel_job(self): #fixed
 		print('Canceling job:')
-		self.postREST('/api/job', json={'command': 'cancel'})
+		self.postREST('/printer/print/cancel', json=None)
 
-	def pause_job(self):
+	def pause_job(self): #fixed
 		print('Pauseing job:')
-		self.postREST('/api/job', json={'command': 'pause'})
+		self.postREST('/printer/print/pause', json=None)
 
-	def resume_job(self):
+	def resume_job(self): #fixed
 		print('Resumeing job:')
-		self.pause_job()
+		self.postREST('printer/print/resume', json=None)
 
-	def set_feedrate(self, fr):
+	def set_feedrate(self, fr): #why would you want this?
 		self.feedrate_percentage = fr
 		self.postREST('/api/printer/printhead', json={'command': 'feedrate', 'factor': fr})
 
-	def home(self, homeZ=False):
-		axes = ["x", "y"]
+	def home(self, homeZ=False): #fixed using gcode
+		script = 'G28 X Y'
 		if homeZ:
-			axes.append("z")
-		print('Homeing:', axes)
-		self.postREST('/api/printer/printhead', json={'command': 'home', 'axes': axes})
+			script += (' Z')
+		print('Homing')
+		self.postREST('/printer/gcode/script', json={'script': script})
 
-	def jog(self, x=False, y=False, z=False, e=False, speed=None):
+    #plugin required
+	def jog(self, x=False, y=False, z=False, e=False, speed=None): #jog cant use gcode due to relative/absolute modes
 		if e:
 			json = {'command': 'extrude'}
 			json['amount'] = e
@@ -469,9 +491,10 @@ class PrinterData:
 			json['z'] = z
 		if speed is not None:
 			json['speed'] = speed
-		print('Joging', json)
+		print('Jogging', json)
 		self.postREST('/api/printer/printhead', json=json)
 
+    #plugin required
 	def disable_all_heaters(self):
 		self.postREST('/api/printer/bed', json={'command': 'target', 'target': 0})
 		self.postREST('/api/printer/tool', json={'command': 'target', 'targets': {"tool0": 0}})
@@ -479,6 +502,7 @@ class PrinterData:
 	def zero_fan_speeds(self):
 		pass
 
+    #plugin required
 	def preheat(self, profile):
 		print('preheating:', profile)
 		if profile == "ABS":
@@ -490,9 +514,10 @@ class PrinterData:
 			self.postREST('/api/printer/tool', json={'command': 'target', 'targets': {"tool0": self.material_preset[0].hotend_temp}})
 
 	def save_settings(self):
-		print('saveing settings')
+		print('saving settings')
 		return True
 
+    #plugin required
 	def setTargetHotend(self, val, num):
 		print('new Hotend Target:', num, 'Temp:', val)
 		if num == 0:

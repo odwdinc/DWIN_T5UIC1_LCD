@@ -144,9 +144,7 @@ class DWIN_LCD:
 	ENCODER_DIFF_ENTER = 3   # click
 	ENCODER_WAIT = 150
 	EncoderRate = False
-
-	SCROLL_UPDATE_INTERVAL = 2000
-
+    
 	dwin_zoffset = 0.0
 	last_zoffset = 0.0
 
@@ -314,8 +312,9 @@ class DWIN_LCD:
 		self.next_rts_update_ms = 0
 		self.last_cardpercentValue = 101
 		self.lcd = T5UIC1_LCD(USARTx)
-		self.timer = multitimer.MultiTimer(interval=2, function=self.EachMomentUpdate)
+		self.checkkey = self.MainMenu
 		self.pd = PrinterData(octoPrint_API_Key)
+		self.timer = multitimer.MultiTimer(interval=2, function=self.EachMomentUpdate)
 		self.HMI_ShowBoot()
 		print("Boot looks good")
 		print("Testing Web-services")
@@ -329,9 +328,9 @@ class DWIN_LCD:
 
 	def lcdExit(self):
 		print("Shutting down the LCD")
-		self.JPG_ShowAndCache(0)
-		self.Frame_SetDir(1)
-		self.UpdateLCD()
+		self.lcd.JPG_ShowAndCache(0)
+		self.lcd.Frame_SetDir(1)
+		self.lcd.UpdateLCD()
 		self.timer.stop()
 		GPIO.remove_event_detect(self.button_pin)
 
@@ -367,9 +366,9 @@ class DWIN_LCD:
 
 	def HMI_StartFrame(self, with_update):
 		self.last_status = self.pd.status
-		if self.pd.status == "Printing":
+		if self.pd.status == 'printing':
 			self.Goto_PrintProcess()
-		elif self.pd.status == "Operational":
+		elif self.pd.status in ['operational', 'complete', 'standby', 'cancelled']:
 			self.Goto_MainMenu()
 		else:
 			self.Goto_MainMenu()
@@ -440,7 +439,6 @@ class DWIN_LCD:
 
 	def HMI_SelectFile(self):
 		encoder_diffState = self.get_encoder_state()
-		hasUpDir = False  # !card.flag.workDirIsRoot;
 		if (encoder_diffState == self.ENCODER_DIFF_NO):
 			return
 
@@ -1063,10 +1061,10 @@ class DWIN_LCD:
 				self.pd.encoderRate = True
 			elif self.select_temp.now == self.TEMP_CASE_FAN:  # Fan speed
 				self.checkkey = self.FanSpeed
-				self.pd.HMI_ValueStruct.Fan_speed = self.pd.thermalManager['fan_speed'][0]
+				self.pd.HMI_ValueStruct.Fan_speed = self.pd.thermalManager['fan_speed']
 				self.lcd.Draw_IntValue(
 					True, True, 0, self.lcd.font8x16, self.lcd.Color_White, self.lcd.Select_Color,
-					3, 216, self.MBASE(3), self.pd.thermalManager['fan_speed'][0]
+					3, 216, self.MBASE(3), self.pd.thermalManager['fan_speed']
 				)
 				self.pd.encoderRate = True
 
@@ -1691,6 +1689,7 @@ class DWIN_LCD:
 
 	def Draw_Print_ProgressRemain(self):
 		remain_time = self.pd.remain()
+		if not remain_time: return #time remaining is None during warmup.
 		self.lcd.Draw_IntValue(True, True, 1, self.lcd.font8x16, self.lcd.Color_White, self.lcd.Color_Bg_Black, 2, 176, 212, remain_time / 3600)
 		self.lcd.Draw_String(False, False, self.lcd.font8x16, self.lcd.Color_White, self.lcd.Color_Bg_Black, 192, 212, ":")
 		self.lcd.Draw_IntValue(True, True, 1, self.lcd.font8x16, self.lcd.Color_White, self.lcd.Color_Bg_Black, 2, 200, 212, (remain_time % 3600) / 60)
@@ -1951,8 +1950,9 @@ class DWIN_LCD:
 
 		# Copy into filebuf string before entry
 		name = self.pd.file_name
-		npos = _MAX(0, self.lcd.DWIN_WIDTH - len(name) * self.MENU_CHR_W) / 2
-		self.lcd.Draw_String(False, False, self.lcd.font8x16, self.lcd.Color_White, self.lcd.Color_Bg_Black, npos, 60, name)
+		if name:
+			npos = _MAX(0, self.lcd.DWIN_WIDTH - len(name) * self.MENU_CHR_W) / 2
+			self.lcd.Draw_String(False, False, self.lcd.font8x16, self.lcd.Color_White, self.lcd.Color_Bg_Black, npos, 60, name)
 
 		self.lcd.ICON_Show(self.ICON, self.ICON_PrintTime, 17, 193)
 		self.lcd.ICON_Show(self.ICON, self.ICON_RemainTime, 150, 191)
@@ -2215,9 +2215,9 @@ class DWIN_LCD:
 		update = self.pd.update_variable()
 		if self.last_status != self.pd.status:
 			self.last_status = self.pd.status
-			if self.pd.status == "Printing":
+			if self.pd.status == 'printing':
 				self.Goto_PrintProcess()
-			elif self.pd.status == "Operational":
+			elif self.pd.status in ['operational', 'complete', 'standby', 'cancelled']:
 				self.Goto_MainMenu()
 
 		if (self.checkkey == self.PrintProcess):
