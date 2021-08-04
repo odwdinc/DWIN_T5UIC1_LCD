@@ -1061,10 +1061,10 @@ class DWIN_LCD:
 				self.pd.encoderRate = True
 			elif self.select_temp.now == self.TEMP_CASE_FAN:  # Fan speed
 				self.checkkey = self.FanSpeed
-				self.pd.HMI_ValueStruct.Fan_speed = self.pd.thermalManager['fan_speed']
+				self.pd.HMI_ValueStruct.Fan_speed = self.pd.thermalManager['fan_speed'][0]
 				self.lcd.Draw_IntValue(
 					True, True, 0, self.lcd.font8x16, self.lcd.Color_White, self.lcd.Select_Color,
-					3, 216, self.MBASE(3), self.pd.thermalManager['fan_speed']
+					3, 216, self.MBASE(3), self.pd.thermalManager['fan_speed'][0]
 				)
 				self.pd.encoderRate = True
 
