@@ -1,3 +1,4 @@
+from asyncio.tasks import sleep
 import threading
 import errno
 import select
@@ -7,7 +8,7 @@ import requests
 from requests.exceptions import ConnectionError
 import atexit
 import time
-
+import asyncio
 
 class xyze_t:
 	x = 0.0
@@ -94,7 +95,7 @@ class material_preset_t:
 		self.fan_speed = fan_speed
 
 
-class klippySocket:
+class KlippySocket:
 	def __init__(self, uds_filename, callback=None):
 		self.webhook_socket_create(uds_filename)
 		self.lock = threading.Lock()
@@ -175,7 +176,7 @@ class klippySocket:
 				self.send_line()
 
 
-class octoprintSocket:
+class MoonrakerSocket:
 	def __init__(self, address, port, api_key):
 		self.s = requests.Session()
 		self.s.headers.update({
@@ -186,6 +187,7 @@ class octoprintSocket:
 
 
 class PrinterData:
+	event_loop = None
 	HAS_HOTEND = True
 	HOTENDS = 1
 	HAS_HEATED_BED = True
@@ -193,7 +195,7 @@ class PrinterData:
 	HAS_ZOFFSET_ITEM = True
 	HAS_ONESTEP_LEVELING = False
 	HAS_PREHEAT = True
-	HAS_BED_PROBE = True
+	HAS_BED_PROBE = False
 	PREVENT_COLD_EXTRUSION = True
 	EXTRUDE_MINTEMP = 170
 	EXTRUDE_MAXLENGTH = 200
@@ -222,7 +224,7 @@ class PrinterData:
 
 	buzzer = buzz_t()
 
-	BABY_Z_VAR = 3.1
+	BABY_Z_VAR = 0
 	feedrate_percentage = 100
 	temphot = 0
 	tempbed = 0
@@ -239,7 +241,7 @@ class PrinterData:
 	}
 
 	material_preset = [
-		material_preset_t('PLA', 180, 60),
+		material_preset_t('PLA', 200, 60),
 		material_preset_t('ABS', 210, 100)
 	]
 	files = None
@@ -247,11 +249,11 @@ class PrinterData:
 	SHORT_BUILD_VERSION = "1.00"
 	CORP_WEBSITE_E = "https://www.klipper3d.org/"
 
-	def __init__(self, octoPrint_API_Key, octoPrint_URL='127.0.0.1'):
-		self.op = octoprintSocket(octoPrint_URL, 80, octoPrint_API_Key)
+	def __init__(self, API_Key, URL='127.0.0.1'):
+		self.op = MoonrakerSocket(URL, 80, API_Key)
 		self.status = None
 		print(self.op.base_address)
-		self.ks = klippySocket('/tmp/klippy_uds', callback=self.klippy_callback)
+		self.ks = KlippySocket('/tmp/klippy_uds', callback=self.klippy_callback)
 		subscribe = {
 			"id": 4001,
 			"method": "objects/subscribe",
@@ -270,6 +272,9 @@ class PrinterData:
 		self.ks.queue_line(json.dumps(subscribe))
 		self.ks.queue_line(self.klippy_z_offset)
 		self.ks.queue_line(self.klippy_home)
+
+		self.event_loop = asyncio.new_event_loop()
+		threading.Thread(target=self.event_loop.run_forever, daemon=True).start()
 
 	# ------------- Klipper Function ----------
 
@@ -315,19 +320,19 @@ class PrinterData:
 			return False
 
 	def offset_z(self, new_offset):
-		print('new z offset:', new_offset)
+#		print('new z offset:', new_offset)
 		self.BABY_Z_VAR = new_offset
-		self.queue('ACCEPT')
+		self.sendGCode('ACCEPT')
 
 	def add_mm(self, axs, new_offset):
 		gc = 'TESTZ Z={}'.format(new_offset)
 		print(axs, gc)
-		self.queue(gc)
+		self.sendGCode(gc)
 
 	def probe_calibrate(self):
-		self.queue('G28')
-		self.queue('PROBE_CALIBRATE')
-		self.queue('G1 Z0')
+		self.sendGCode('G28')
+		self.sendGCode('PROBE_CALIBRATE')
+		self.sendGCode('G1 Z0')
 
 	# ------------- OctoPrint Function ----------
 
@@ -340,8 +345,11 @@ class PrinterData:
 			print('Decoding JSON has failed')
 		return None
 
-	def postREST(self, path, json):
+	async def _postREST(self, path, json):
 		self.op.s.post(self.op.base_address + path, json=json)
+
+	def postREST(self, path, json):
+		self.event_loop.call_soon_threadsafe(asyncio.create_task,self._postREST(path,json))
 
 	def init_Webservices(self):
 		try:
@@ -379,13 +387,13 @@ class PrinterData:
 		return names
 
 	def update_variable(self):
-		query = '/printer/objects/query?virtual_sdcard&print_stats&extruder&heater_bed&gcode_move&fan'
+		query = '/printer/objects/query?extruder&heater_bed&gcode_move&fan'
 		data = self.getREST(query)['result']['status']
 		gcm = data['gcode_move']
 		z_offset = gcm['homing_origin'][2] #z offset
 		flow_rate = gcm['extrude_factor'] * 100 #flow rate percent
-		absolute_moves = gcm['absolute_coordinates'] #absolute or relative
-		absolute_extrude = gcm['absolute_extrude'] #absolute or relative
+		self.absolute_moves = gcm['absolute_coordinates'] #absolute or relative
+		self.absolute_extrude = gcm['absolute_extrude'] #absolute or relative
 		speed = gcm['speed'] #current speed in mm/s
 		print_speed = gcm['speed_factor'] * 100 #print speed percent
 		bed = data['heater_bed'] #temperature, target
@@ -410,6 +418,7 @@ class PrinterData:
 				Update = True
 			if self.BABY_Z_VAR != z_offset:
 				self.BABY_Z_VAR = z_offset
+				self.HMI_ValueStruct.offset_value = z_offset * 100
 				Update = True
 		except:
 			pass #missing key, shouldn't happen, fixes misses on conditionals ¯\_(ツ)_/¯
@@ -446,81 +455,68 @@ class PrinterData:
 		self.file_name = self.files[filenum]['path']
 		self.postREST('/printer/print/start', json={'filename': self.file_name})
 
-	def queue(self, gcode):
-		print('Sending gcode: ', gcode)
-		self.postREST('/api/printer/command', json={'command': gcode})
-
 	def cancel_job(self): #fixed
 		print('Canceling job:')
 		self.postREST('/printer/print/cancel', json=None)
 
 	def pause_job(self): #fixed
-		print('Pauseing job:')
+		print('Pausing job:')
 		self.postREST('/printer/print/pause', json=None)
 
 	def resume_job(self): #fixed
-		print('Resumeing job:')
+		print('Resuming job:')
 		self.postREST('printer/print/resume', json=None)
 
-	def set_feedrate(self, fr): #why would you want this?
+	def set_feedrate(self, fr):
 		self.feedrate_percentage = fr
-		self.postREST('/api/printer/printhead', json={'command': 'feedrate', 'factor': fr})
+		self.sendGCode('M220 S%s' % fr)
 
 	def home(self, homeZ=False): #fixed using gcode
 		script = 'G28 X Y'
 		if homeZ:
 			script += (' Z')
-		print('Homing')
-		self.postREST('/printer/gcode/script', json={'script': script})
+		self.sendGCode(script)
 
-    #plugin required
-	def jog(self, x=False, y=False, z=False, e=False, speed=None): #jog cant use gcode due to relative/absolute modes
-		if e:
-			json = {'command': 'extrude'}
-			json['amount'] = e
-			print('Extruding:', json)
-			self.postREST('/api/printer/tool', json)
-			return
+	def moveRelative(self, axis, distance, speed):
+		self.sendGCode('%s \n%s %s%s F%s%s' % ('G91', 'G1', axis, distance, speed,
+			'\nG90' if self.absolute_moves else ''))
 
-		json = {'command': 'jog', 'absolute': True}
-		if x:
-			json['x'] = x
-		if y:
-			json['y'] = y
-		if z:
-			json['z'] = z
-		if speed is not None:
-			json['speed'] = speed
-		print('Jogging', json)
-		self.postREST('/api/printer/printhead', json=json)
+	def moveAbsolute(self, axis, position, speed):
+		self.sendGCode('%s \n%s %s%s F%s%s' % ('G90', 'G1', axis, position, speed,
+			'\nG91' if not self.absolute_moves else ''))
 
-    #plugin required
+	def sendGCode(self, gcode):
+		self.postREST('/printer/gcode/script', json={'script': gcode})
+
 	def disable_all_heaters(self):
-		self.postREST('/api/printer/bed', json={'command': 'target', 'target': 0})
-		self.postREST('/api/printer/tool', json={'command': 'target', 'targets': {"tool0": 0}})
+		self.setExtTemp(0)
+		self.setBedTemp(0)
 
 	def zero_fan_speeds(self):
 		pass
 
-    #plugin required
 	def preheat(self, profile):
-		print('preheating:', profile)
-		if profile == "ABS":
-			self.postREST('/api/printer/bed', json={'command': 'target', 'target': self.material_preset[1].bed_temp})
-			self.postREST('/api/printer/tool', json={'command': 'target', 'targets': {"tool0": self.material_preset[1].hotend_temp}})
-
-		elif profile == "PLA":
-			self.postREST('/api/printer/bed', json={'command': 'target', 'target': self.material_preset[0].bed_temp})
-			self.postREST('/api/printer/tool', json={'command': 'target', 'targets': {"tool0": self.material_preset[0].hotend_temp}})
+		if profile == "PLA":
+			self.preHeat(self.material_preset[0].bed_temp, self.material_preset[0].hotend_temp)
+		elif profile == "ABS":
+			self.preHeat(self.material_preset[1].bed_temp, self.material_preset[1].hotend_temp)
 
 	def save_settings(self):
 		print('saving settings')
 		return True
 
-    #plugin required
-	def setTargetHotend(self, val, num):
-		print('new Hotend Target:', num, 'Temp:', val)
-		if num == 0:
-			self.postREST('/api/printer/tool', json={'command': 'target', 'targets': {"tool0": val}})
-		else:
-			self.postREST('/api/printer/bed', json={'command': 'target', 'target': val})
+	def setExtTemp(self, target, toolnum=0):
+		self.sendGCode('M104 T%s S%s' % (toolnum, target))
+
+	def setBedTemp(self, target):
+		self.sendGCode('M140 S%s' % target)
+
+	def preHeat(self, bedtemp, exttemp, toolnum=0):
+# these work but invoke a wait which hangs the screen until they finish.
+#		self.sendGCode('M140 S%s\nM190 S%s' % (bedtemp, bedtemp))
+#		self.sendGCode('M104 T%s S%s\nM109 T%s S%s' % (toolnum, exttemp, toolnum, exttemp))
+		self.setBedTemp(bedtemp)
+		self.setExtTemp(exttemp)
+
+	def setZOffset(self, offset):
+		self.sendGCode('SET_GCODE_OFFSET Z=%s MOVE=1' % offset)
