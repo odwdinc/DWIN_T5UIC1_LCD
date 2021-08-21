@@ -56,6 +56,10 @@ To:
   * Vcc =   2   (5v)
   * Gnd =   6   (GND)
 
+Here's a diagram based on my color selection:
+
+<img src ="images/GPIO.png?raw=true" width="325" height="75">
+<img src ="images/panel.png?raw=true" width="325" height="180">
 
 I tried to take some images to help out with this: You don't have to use the color of wiring that I used:
 
