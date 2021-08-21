@@ -56,6 +56,13 @@ To:
   * Vcc =   2   (5v)
   * Gnd =   6   (GND)
 
+
+I tried to take some images to help out with this: You don't have to use the color of wiring that I used:
+
+![Wiring 1](images/wire1.png?raw=true "Wiring 1") ![Wiring 2](images/wire2.png?raw=true "Wiring 2")
+
+![Wiring 3](images/wire3.png?raw=true "Wiring 3") ![Wiring 4](images/wire4.png?raw=true "Wiring 4")
+
 ### Run The Code
 
 Enter the downloaded DWIN_T5UIC1_LCD folder.
@@ -77,12 +84,6 @@ DWINLCD = DWIN_LCD(
 	API_Key
 )
 ```
-
-I tried to take some images to help out with this: You don't have to use the color of wiring that I used:
-
-![Wiring 1](images/wire1.png?raw=true "Wiring 1") ![Wiring 2](images/wire2.png?raw=true "Wiring 2")
-
-![Wiring 3](images/wire3.png?raw=true "Wiring 3") ![Wiring 4](images/wire4.png?raw=true "Wiring 4")
 
 
 Run with `python3 ./run.py`
