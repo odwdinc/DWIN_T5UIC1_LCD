@@ -61,7 +61,8 @@ I tried to take some images to help out with this: You don't have to use the col
 
 ![Wiring 1](images/wire1.png?raw=true "Wiring 1") ![Wiring 2](images/wire2.png?raw=true "Wiring 2")
 
-![Wiring 3](images/wire3.png?raw=true "Wiring 3") ![Wiring 4](images/wire4.png?raw=true "Wiring 4")
+![Wiring 3](images/wire3.png?raw=true "Wiring 3")
+![Wiring 4](images/wire4.png?raw=true "Wiring 4")
 
 ### Run The Code
 
