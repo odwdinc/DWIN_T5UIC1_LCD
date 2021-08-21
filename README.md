@@ -59,10 +59,11 @@ To:
 
 I tried to take some images to help out with this: You don't have to use the color of wiring that I used:
 
-![Wiring 1](images/wire1.png?raw=true "Wiring 1") ![Wiring 2](images/wire2.png?raw=true "Wiring 2")
+<img src ="images/wire1.png?raw=true" width="200" height="400"> <img src ="images/wire2.png?raw=true" width="200" height="400">
 
-![Wiring 3](images/wire3.png?raw=true "Wiring 3")
-![Wiring 4](images/wire4.png?raw=true "Wiring 4")
+<img src ="images/wire3.png?raw=true" width="400" height="200">
+
+<img src ="images/wire4.png?raw=true" width="400" height="300">
 
 ### Run The Code
 
