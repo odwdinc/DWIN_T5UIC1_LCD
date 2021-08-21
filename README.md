@@ -65,7 +65,7 @@ Make new file run.py and add
 #!/usr/bin/env python3
 from dwinlcd import DWIN_LCD
 
-encoder_Pins = (26, 19)
+encoder_Pins = (19, 26)
 button_Pin = 13
 LCD_COM_Port = '/dev/ttyAMA0'
 API_Key = 'XXXXXX'
@@ -77,6 +77,13 @@ DWINLCD = DWIN_LCD(
 	API_Key
 )
 ```
+
+I tried to take some images to help out with this: You don't have to use the color of wiring that I used:
+
+![Wiring 1](images/wire1.png?raw=true "Wiring 1") ![Wiring 2](images/wire2.png?raw=true "Wiring 2")
+
+![Wiring 3](images/wire3.png?raw=true "Wiring 3") ![Wiring 4](images/wire4.png?raw=true "Wiring 4")
+
 
 Run with `python3 ./run.py`
 
