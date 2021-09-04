@@ -156,7 +156,7 @@ class klippySocket:
 			return
 		try:
 			m = json.loads(line)
-		except JSONDecodeError:
+		except json.JSONDecodeError:
 			print("ERROR: Unable to parse line\n")
 			return
 		cm = json.dumps(m, separators=(',', ':'))
@@ -335,7 +335,7 @@ class PrinterData:
 		d = r.content.decode('utf-8')
 		try:
 			return json.loads(d)
-		except JSONDecodeError:
+		except json.JSONDecodeError:
 			print('Decoding JSON has failed')
 		return None
 
