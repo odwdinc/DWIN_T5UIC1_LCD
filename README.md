@@ -64,6 +64,7 @@ Make new file run.py and add
 ```python
 #!/usr/bin/env python3
 from dwinlcd import DWIN_LCD
+#from api import MoonrakerAPI  # optional if your want to use moonraker/fluidd
 
 encoder_Pins = (26, 19)
 button_Pin = 13
@@ -74,7 +75,8 @@ DWINLCD = DWIN_LCD(
 	LCD_COM_Port,
 	encoder_Pins,
 	button_Pin,
-	API_Key
+	API_Key,
+  # api_class=MoonrakerAPI # optional if your want to use moonraker/fluidd
 )
 ```
 

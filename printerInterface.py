@@ -5,6 +5,7 @@ import socket
 import json
 import requests
 from requests.exceptions import ConnectionError
+from api import OctoPrintAPI, MoonrakerAPI
 import atexit
 
 
@@ -174,16 +175,6 @@ class klippySocket:
 				self.send_line()
 
 
-class octoprintSocket:
-	def __init__(self, address, port, api_key):
-		self.s = requests.Session()
-		self.s.headers.update({
-			'X-Api-Key': api_key,
-			'Content-Type': 'application/json'
-		})
-		self.base_address = 'http://' + address + ':' + str(port)
-
-
 class PrinterData:
 	HAS_HOTEND = True
 	HOTENDS = 1
@@ -246,10 +237,13 @@ class PrinterData:
 	SHORT_BUILD_VERSION = "1.00"
 	CORP_WEBSITE_E = "https://www.klipper3d.org/"
 
-	def __init__(self, octoPrint_API_Key, octoPrint_URL='127.0.0.1'):
-		self.op = octoprintSocket(octoPrint_URL, 80, octoPrint_API_Key)
+	def __init__(self, api_key, url='127.0.0.1', port=80, api_class=None):
 		self.status = None
-		print(self.op.base_address)
+		if api_class:
+			self.api = api_class(url, port, api_key)
+		else:
+			self.api = OctoPrintAPI(url, port, api_key)
+		print(self.api.base_address)
 		self.ks = klippySocket('/tmp/klippy_uds', callback=self.klippy_callback)
 		subscribe = {
 			"id": 4001,
@@ -329,31 +323,18 @@ class PrinterData:
 		self.queue('G1 Z0')
 
 	# ------------- OctoPrint Function ----------
-
-	def getREST(self, path):
-		r = self.op.s.get(self.op.base_address + path)
-		d = r.content.decode('utf-8')
-		try:
-			return json.loads(d)
-		except JSONDecodeError:
-			print('Decoding JSON has failed')
-		return None
-
-	def postREST(self, path, json):
-		self.op.s.post(self.op.base_address + path, json=json)
-
 	def init_Webservices(self):
 		try:
-			requests.get(self.op.base_address)
+			requests.get(self.api.base_address)
 		except ConnectionError:
 			print('Web site does not exist')
 			return
 		else:
 			print('Web site exists')
-		if self.getREST('/api/printer') is None:
+		if self.api.get_printer_info() is None:
 			return
 		self.update_variable()
-		ppp = self.getREST('/api/printerprofiles/_default')
+		ppp = self.api.get_printer_profile()
 		self.SHORT_BUILD_VERSION = ppp['model']
 		self.MACHINE_SIZE = "{}x{}x{}".format(
 			int(ppp['volume']['depth']),
@@ -365,14 +346,14 @@ class PrinterData:
 
 	def GetFiles(self, refresh=False):
 		if not self.fliles or refresh:
-			self.fliles = self.getREST('/api/files')["files"]
+			self.fliles = self.api.get_files()["files"]
 		names = []
 		for fl in self.fliles:
 			names.append(fl["display"])
 		return names
 
 	def update_variable(self):
-		self.state = self.getREST('/api/printer')
+		self.state = self.api.get_printer_info()
 		Update = False
 		if self.state:
 			if "temperature" in self.state:
@@ -395,7 +376,7 @@ class PrinterData:
 					if self.thermalManager['temp_hotend'][0]['celsius'] != int(self.state["temperature"]["tool0"]["actual"]):
 						self.thermalManager['temp_hotend'][0]['celsius'] = int(self.state["temperature"]["tool0"]["actual"])
 						Update = True
-		self.job_Info = self.getREST('/api/job')
+		self.job_Info = self.api.get_job()
 		if self.job_Info:
 			self.file_name = self.job_Info['job']['file']['name']
 			self.status = self.job_Info['state']
@@ -423,41 +404,41 @@ class PrinterData:
 
 	def openAndPrintFile(self, filenum):
 		self.file_name = self.fliles[filenum]["name"]
-		self.postREST('/api/files/local/' + self.file_name, json={'command': 'select', 'print': True})
+		self.api.print_file_local(self.file_name)
 
 	def queue(self, gcode):
 		print('Sending gcode: ', gcode)
-		self.postREST('/api/printer/command', json={'command': gcode})
+		self.api.send_gcode(gcode)
 
 	def cancel_job(self):
 		print('Canceling job:')
-		self.postREST('/api/job', json={'command': 'cancel'})
+		self.api.cancel_job()
 
 	def pause_job(self):
 		print('Pauseing job:')
-		self.postREST('/api/job', json={'command': 'pause'})
+		self.api.pause_job()
 
 	def resume_job(self):
 		print('Resumeing job:')
-		self.pause_job()
+		self.api.pause_job()
 
 	def set_feedrate(self, fr):
 		self.feedrate_percentage = fr
-		self.postREST('/api/printer/printhead', json={'command': 'feedrate', 'factor': fr})
+		self.api.set_feedrate(fr)
 
 	def home(self, homeZ=False):
 		axes = ["x", "y"]
 		if homeZ:
 			axes.append("z")
 		print('Homeing:', axes)
-		self.postREST('/api/printer/printhead', json={'command': 'home', 'axes': axes})
+		self.api.set_printhead_axes(axes)
 
 	def jog(self, x=False, y=False, z=False, e=False, speed=None):
 		if e:
 			json = {'command': 'extrude'}
 			json['amount'] = e
 			print('Extruding:', json)
-			self.postREST('/api/printer/tool', json)
+			self.api.set_tool(json)
 			return
 
 		json = {'command': 'jog', 'absolute': True}
@@ -470,11 +451,11 @@ class PrinterData:
 		if speed is not None:
 			json['speed'] = speed
 		print('Joging', json)
-		self.postREST('/api/printer/printhead', json=json)
+		self.api.set_printhead(json)
 
 	def disable_all_heaters(self):
-		self.postREST('/api/printer/bed', json={'command': 'target', 'target': 0})
-		self.postREST('/api/printer/tool', json={'command': 'target', 'targets': {"tool0": 0}})
+		self.api.set_bed_temp(0)
+		self.api.set_tool_temp(0)
 
 	def zero_fan_speeds(self):
 		pass
@@ -482,12 +463,11 @@ class PrinterData:
 	def preheat(self, profile):
 		print('preheating:', profile)
 		if profile == "ABS":
-			self.postREST('/api/printer/bed', json={'command': 'target', 'target': self.material_preset[1].bed_temp})
-			self.postREST('/api/printer/tool', json={'command': 'target', 'targets': {"tool0": self.material_preset[1].hotend_temp}})
-
+			self.api.set_bed_temp(self.material_preset[1].bed_temp)
+			self.api.set_tool_temp(self.material_preset[1].hotend_temp)
 		elif profile == "PLA":
-			self.postREST('/api/printer/bed', json={'command': 'target', 'target': self.material_preset[0].bed_temp})
-			self.postREST('/api/printer/tool', json={'command': 'target', 'targets': {"tool0": self.material_preset[0].hotend_temp}})
+			self.api.set_bed_temp(self.material_preset[0].bed_temp)
+			self.api.set_tool_temp(self.material_preset[0].hotend_temp)
 
 	def save_settings(self):
 		print('saveing settings')
@@ -496,6 +476,6 @@ class PrinterData:
 	def setTargetHotend(self, val, num):
 		print('new Hotend Target:', num, 'Temp:', val)
 		if num == 0:
-			self.postREST('/api/printer/tool', json={'command': 'target', 'targets': {"tool0": val}})
+			self.api.set_tool_temp(val)
 		else:
-			self.postREST('/api/printer/bed', json={'command': 'target', 'target': val})
+			self.api.set_bed_temp(val)
