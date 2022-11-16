@@ -142,10 +142,10 @@ class DWIN_LCD:
 	ENCODER_DIFF_CW = 1  # clockwise rotation
 	ENCODER_DIFF_CCW = 2  # counterclockwise rotation
 	ENCODER_DIFF_ENTER = 3   # click
-	ENCODER_WAIT = 150
-	EncoderRate = False
+	ENCODER_WAIT = 80
+	ENCODER_WAIT_ENTER = 300
+	EncoderRateLimit = True
 
-	SCROLL_UPDATE_INTERVAL = 2000
 
 	dwin_zoffset = 0.0
 	last_zoffset = 0.0
@@ -283,7 +283,7 @@ class DWIN_LCD:
 	TUNE_CASE_TEMP = (TUNE_CASE_SPEED + 1)
 	TUNE_CASE_BED = (TUNE_CASE_TEMP + 1)
 	TUNE_CASE_FAN = (TUNE_CASE_BED + 0)
-	TUNE_CASE_ZOFF = (TUNE_CASE_FAN + 0)
+	TUNE_CASE_ZOFF = (TUNE_CASE_FAN + 1)
 	TUNE_CASE_TOTAL = TUNE_CASE_ZOFF
 
 	TEMP_CASE_TEMP = (0 + 1)
@@ -311,11 +311,13 @@ class DWIN_LCD:
 		self.encoder.callback = self.encoder_has_data
 		self.EncodeLast = 0
 		self.EncodeMS = current_milli_time() + self.ENCODER_WAIT
+		self.EncodeEnter = current_milli_time() + self.ENCODER_WAIT_ENTER
 		self.next_rts_update_ms = 0
 		self.last_cardpercentValue = 101
 		self.lcd = T5UIC1_LCD(USARTx)
-		self.timer = multitimer.MultiTimer(interval=2, function=self.EachMomentUpdate)
+		self.checkkey = self.MainMenu
 		self.pd = PrinterData(octoPrint_API_Key)
+		self.timer = multitimer.MultiTimer(interval=2, function=self.EachMomentUpdate)
 		self.HMI_ShowBoot()
 		print("Boot looks good")
 		print("Testing Web-services")
@@ -329,9 +331,9 @@ class DWIN_LCD:
 
 	def lcdExit(self):
 		print("Shutting down the LCD")
-		self.JPG_ShowAndCache(0)
-		self.Frame_SetDir(1)
-		self.UpdateLCD()
+		self.lcd.JPG_ShowAndCache(0)
+		self.lcd.Frame_SetDir(1)
+		self.lcd.UpdateLCD()
 		self.timer.stop()
 		GPIO.remove_event_detect(self.button_pin)
 
@@ -367,9 +369,9 @@ class DWIN_LCD:
 
 	def HMI_StartFrame(self, with_update):
 		self.last_status = self.pd.status
-		if self.pd.status == "Printing":
+		if self.pd.status == 'printing':
 			self.Goto_PrintProcess()
-		elif self.pd.status == "Operational":
+		elif self.pd.status in ['operational', 'complete', 'standby', 'cancelled']:
 			self.Goto_MainMenu()
 		else:
 			self.Goto_MainMenu()
@@ -440,11 +442,10 @@ class DWIN_LCD:
 
 	def HMI_SelectFile(self):
 		encoder_diffState = self.get_encoder_state()
-		hasUpDir = False  # !card.flag.workDirIsRoot;
 		if (encoder_diffState == self.ENCODER_DIFF_NO):
 			return
 
-		fullCnt = len(self.pd.GetFiles())
+		fullCnt = len(self.pd.GetFiles(refresh=True))
 
 		if (encoder_diffState == self.ENCODER_DIFF_CW and fullCnt):
 			if (self.select_file.inc(1 + fullCnt)):
@@ -558,31 +559,31 @@ class DWIN_LCD:
 					True, True, 0, self.lcd.font8x16, self.lcd.Color_White, self.lcd.Color_Bg_Black,
 					3, 1, 216, self.MBASE(3), self.pd.current_position.z * self.MINUNITMULT
 				)
-				self.pd.queue("G92 E0")
+				self.pd.sendGCode("G92 E0")
 				self.pd.current_position.e = self.pd.HMI_ValueStruct.Move_E_scale = 0
 				self.lcd.Draw_Signed_Float(self.lcd.font8x16, self.lcd.Color_Bg_Black, 3, 1, 216, self.MBASE(4), 0)
 			elif self.select_prepare.now == self.PREPARE_CASE_DISA:  # Disable steppers
-				self.pd.queue("M84")
+				self.pd.sendGCode("M84")
 			elif self.select_prepare.now == self.PREPARE_CASE_HOME:  # Homing
 				self.checkkey = self.Last_Prepare
 				self.index_prepare = self.MROWS
-				self.pd.queue("G28")
 				self.pd.current_position.homing()
 				self.pd.HMI_flag.home_flag = True
 				self.Popup_Window_Home()
+				self.pd.sendGCode("G28")
 			elif self.select_prepare.now == self.PREPARE_CASE_ZOFF:  # Z-offset
 				self.checkkey = self.Homeoffset
-				self.pd.probe_calibrate()
+				if self.pd.HAS_BED_PROBE:
+					self.pd.probe_calibrate()
+
 				self.pd.HMI_ValueStruct.show_mode = -4
-				self.pd.HMI_ValueStruct.offset_value = self.pd.BABY_Z_VAR * 100
-				self.dwin_zoffset = self.pd.HMI_ValueStruct.offset_value / 100.0
 
 				self.lcd.Draw_Signed_Float(
 					self.lcd.font8x16, self.lcd.Select_Color, 2, 2, 202,
 					self.MBASE(self.PREPARE_CASE_ZOFF + self.MROWS - self.index_prepare),
 					self.pd.HMI_ValueStruct.offset_value
 				)
-				self.EncoderRate = True
+				self.EncoderRateLimit = False
 
 			elif self.select_prepare.now == self.PREPARE_CASE_PLA:  # PLA preheat
 				self.pd.preheat("PLA")
@@ -777,7 +778,7 @@ class DWIN_LCD:
 			if self.select_tune.now == 0:  # Back
 				self.select_print.set(0)
 				self.Goto_PrintProcess()
-			if self.select_tune.now == self.TUNE_CASE_SPEED:  # Print speed
+			elif self.select_tune.now == self.TUNE_CASE_SPEED:  # Print speed
 				self.checkkey = self.PrintSpeed
 				self.pd.HMI_ValueStruct.print_speed = self.pd.feedrate_percentage
 				self.lcd.Draw_IntValue(
@@ -785,7 +786,14 @@ class DWIN_LCD:
 					3, 216, self.MBASE(self.TUNE_CASE_SPEED + self.MROWS - self.index_tune),
 					self.pd.feedrate_percentage
 				)
-				self.EncoderRate = True
+				self.EncoderRateLimit = False
+			elif self.select_tune.now == self.TUNE_CASE_ZOFF:   #z offset
+				self.checkkey = self.Homeoffset
+				self.lcd.Draw_Signed_Float(
+					self.lcd.font8x16, self.lcd.Select_Color, 2, 2, 202,
+					self.MBASE(self.TUNE_CASE_ZOFF + self.MROWS - self.index_tune),
+					self.pd.HMI_ValueStruct.offset_value
+				)
 
 		self.lcd.UpdateLCD()
 
@@ -802,7 +810,7 @@ class DWIN_LCD:
 
 		elif (encoder_diffState == self.ENCODER_DIFF_ENTER):
 			self.checkkey = self.Tune
-			self.pd.encoderRate = False
+			self.encoderRate = True
 			self.pd.set_feedrate(self.pd.HMI_ValueStruct.print_speed)
 
 		self.lcd.Draw_IntValue(
@@ -865,7 +873,7 @@ class DWIN_LCD:
 					3, 1, 216, self.MBASE(1),
 					self.pd.HMI_ValueStruct.Move_X_scale
 				)
-				self.EncoderRate = True
+				self.EncoderRateLimit = False
 			elif self.select_axis.now == 2:  # Y axis move
 				self.checkkey = self.Move_Y
 				self.pd.HMI_ValueStruct.Move_Y_scale = self.pd.current_position.y * self.MINUNITMULT
@@ -874,7 +882,7 @@ class DWIN_LCD:
 					3, 1, 216, self.MBASE(2),
 					self.pd.HMI_ValueStruct.Move_Y_scale
 				)
-				self.EncoderRate = True
+				self.EncoderRateLimit = False
 			elif self.select_axis.now == 3:  # Z axis move
 				self.checkkey = self.Move_Z
 				self.pd.HMI_ValueStruct.Move_Z_scale = self.pd.current_position.z * self.MINUNITMULT
@@ -883,7 +891,7 @@ class DWIN_LCD:
 					3, 1, 216, self.MBASE(3),
 					self.pd.HMI_ValueStruct.Move_Z_scale
 				)
-				self.EncoderRate = True
+				self.EncoderRateLimit = False
 			elif self.select_axis.now == 4:  # Extruder
 				# window tips
 				if self.pd.PREVENT_COLD_EXTRUSION:
@@ -898,7 +906,7 @@ class DWIN_LCD:
 					self.lcd.font8x16, self.lcd.Select_Color, 3, 1, 216, self.MBASE(4),
 					self.pd.HMI_ValueStruct.Move_E_scale
 				)
-				self.EncoderRate = True
+				self.EncoderRateLimit = False
 		self.lcd.UpdateLCD()
 
 	def HMI_Move_X(self):
@@ -907,13 +915,13 @@ class DWIN_LCD:
 			return
 		elif (encoder_diffState == self.ENCODER_DIFF_ENTER):
 			self.checkkey = self.AxisMove
-			self.EncoderRate = False
+			self.EncoderRateLimit = True
 			self.lcd.Draw_FloatValue(
 				True, True, 0, self.lcd.font8x16, self.lcd.Color_White, self.lcd.Color_Bg_Black,
 				3, 1, 216, self.MBASE(1),
 				self.pd.HMI_ValueStruct.Move_X_scale
 			)
-			self.pd.jog(x=self.pd.current_position.x)
+			self.pd.moveAbsolute('X',self.pd.current_position.x, 5000)
 			self.lcd.UpdateLCD()
 			return
 		elif (encoder_diffState == self.ENCODER_DIFF_CW):
@@ -939,13 +947,14 @@ class DWIN_LCD:
 			return
 		elif (encoder_diffState == self.ENCODER_DIFF_ENTER):
 			self.checkkey = self.AxisMove
-			self.EncoderRate = False
+			self.EncoderRateLimit = True
 			self.lcd.Draw_FloatValue(
 				True, True, 0, self.lcd.font8x16, self.lcd.Color_White, self.lcd.Color_Bg_Black,
 				3, 1, 216, self.MBASE(2),
 				self.pd.HMI_ValueStruct.Move_Y_scale
 			)
-			self.pd.jog(y=self.pd.current_position.y)
+
+			self.pd.moveAbsolute('Y',self.pd.current_position.y, 5000)
 			self.lcd.UpdateLCD()
 			return
 		elif (encoder_diffState == self.ENCODER_DIFF_CW):
@@ -971,13 +980,13 @@ class DWIN_LCD:
 			return
 		elif (encoder_diffState == self.ENCODER_DIFF_ENTER):
 			self.checkkey = self.AxisMove
-			self.EncoderRate = False
+			self.EncoderRateLimit = True
 			self.lcd.Draw_FloatValue(
 				True, True, 0, self.lcd.font8x16, self.lcd.Color_White, self.lcd.Color_Bg_Black,
 				3, 1, 216, self.MBASE(3),
 				self.pd.HMI_ValueStruct.Move_Z_scale
 			)
-			self.pd.jog(z=self.pd.current_position.z)
+			self.pd.moveAbsolute('Z',self.pd.current_position.z, 600)
 			self.lcd.UpdateLCD()
 			return
 		elif (encoder_diffState == self.ENCODER_DIFF_CW):
@@ -1005,13 +1014,13 @@ class DWIN_LCD:
 
 		elif (encoder_diffState == self.ENCODER_DIFF_ENTER):
 			self.checkkey = self.AxisMove
-			self.EncoderRate = False
+			self.EncoderRateLimit = True
 			self.pd.last_E_scale = self.pd.HMI_ValueStruct.Move_E_scale
 			self.lcd.Draw_Signed_Float(
 				self.lcd.font8x16, self.lcd.Color_Bg_Black, 3, 1, 216,
 				self.MBASE(4), self.pd.HMI_ValueStruct.Move_E_scale
 			)
-			self.pd.jog(e=self.pd.current_position.e)
+			self.pd.moveAbsolute('E',self.pd.current_position.e, 300)
 			self.lcd.UpdateLCD()
 		elif (encoder_diffState == self.ENCODER_DIFF_CW):
 			self.pd.HMI_ValueStruct.Move_E_scale += 1
@@ -1051,7 +1060,7 @@ class DWIN_LCD:
 					3, 216, self.MBASE(1),
 					self.pd.thermalManager['temp_hotend'][0]['target']
 				)
-				self.pd.encoderRate = True
+				self.EncoderRateLimit = False
 			elif self.select_temp.now == self.TEMP_CASE_BED:  # Bed temperature
 				self.checkkey = self.BedTemp
 				self.pd.HMI_ValueStruct.Bed_Temp = self.pd.thermalManager['temp_bed']['target']
@@ -1060,7 +1069,7 @@ class DWIN_LCD:
 					3, 216, self.MBASE(2),
 					self.pd.thermalManager['temp_bed']['target']
 				)
-				self.pd.encoderRate = True
+				self.EncoderRateLimit = False
 			elif self.select_temp.now == self.TEMP_CASE_FAN:  # Fan speed
 				self.checkkey = self.FanSpeed
 				self.pd.HMI_ValueStruct.Fan_speed = self.pd.thermalManager['fan_speed'][0]
@@ -1068,7 +1077,7 @@ class DWIN_LCD:
 					True, True, 0, self.lcd.font8x16, self.lcd.Color_White, self.lcd.Select_Color,
 					3, 216, self.MBASE(3), self.pd.thermalManager['fan_speed'][0]
 				)
-				self.pd.encoderRate = True
+				self.EncoderRateLimit = False
 
 			elif self.select_temp.now == self.TEMP_CASE_PLA:  # PLA preheat setting
 				self.checkkey = self.PLAPreheat
@@ -1191,7 +1200,7 @@ class DWIN_LCD:
 					3, 216, self.MBASE(self.PREHEAT_CASE_TEMP),
 					self.pd.material_preset[0].hotend_temp
 				)
-				self.pd.encoderRate = True
+				self.EncoderRateLimit = False
 			elif self.select_PLA.now == self.PREHEAT_CASE_BED:  # Bed temperature
 				self.checkkey = self.BedTemp
 				self.pd.HMI_ValueStruct.Bed_Temp = self.pd.material_preset[0].bed_temp
@@ -1200,7 +1209,7 @@ class DWIN_LCD:
 					3, 216, self.MBASE(self.PREHEAT_CASE_BED),
 					self.pd.material_preset[0].bed_temp
 				)
-				self.pd.encoderRate = True
+				self.EncoderRateLimit = False
 			elif self.select_PLA.now == self.PREHEAT_CASE_FAN:  # Fan speed
 				self.checkkey = self.FanSpeed
 				self.pd.HMI_ValueStruct.Fan_speed = self.pd.material_preset[0].fan_speed
@@ -1209,7 +1218,7 @@ class DWIN_LCD:
 					3, 216, self.MBASE(self.PREHEAT_CASE_FAN),
 					self.pd.material_preset[0].fan_speed
 				)
-				self.pd.encoderRate = True
+				self.EncoderRateLimit = False
 			elif self.select_PLA.now == self.PREHEAT_CASE_SAVE:  # Save PLA configuration
 				success = self.pd.save_settings()
 				self.HMI_AudioFeedback(success)
@@ -1243,7 +1252,7 @@ class DWIN_LCD:
 					3, 216, self.MBASE(self.PREHEAT_CASE_TEMP),
 					self.pd.material_preset[1].hotend_temp
 				)
-				self.pd.encoderRate = True
+				self.EncoderRateLimit = False
 			elif self.select_ABS.now == self.PREHEAT_CASE_BED:  # Bed temperature
 				self.checkkey = self.BedTemp
 				self.pd.HMI_ValueStruct.Bed_Temp = self.pd.material_preset[1].bed_temp
@@ -1252,7 +1261,7 @@ class DWIN_LCD:
 					3, 216, self.MBASE(self.PREHEAT_CASE_BED),
 					self.pd.material_preset[1].bed_temp
 				)
-				self.pd.encoderRate = True
+				self.EncoderRateLimit = False
 			elif self.select_ABS.now == self.PREHEAT_CASE_FAN:  # Fan speed
 				self.checkkey = self.FanSpeed
 				self.pd.HMI_ValueStruct.Fan_speed = self.pd.material_preset[1].fan_speed
@@ -1261,7 +1270,7 @@ class DWIN_LCD:
 					3, 216, self.MBASE(self.PREHEAT_CASE_FAN),
 					self.pd.material_preset[1].fan_speed
 				)
-				self.pd.encoderRate = True
+				self.EncoderRateLimit = False
 			elif self.select_ABS.now == self.PREHEAT_CASE_SAVE:  # Save PLA configuration
 				success = self.pd.save_settings()
 				self.HMI_AudioFeedback(success)
@@ -1282,7 +1291,7 @@ class DWIN_LCD:
 			temp_line = self.TUNE_CASE_TEMP + self.MROWS - self.index_tune
 
 		if (encoder_diffState == self.ENCODER_DIFF_ENTER):
-			self.pd.encoderRate = False
+			self.EncoderRateLimit = True
 			if (self.pd.HMI_ValueStruct.show_mode == -1):  # temperature
 				self.checkkey = self.TemperatureID
 				self.lcd.Draw_IntValue(
@@ -1351,7 +1360,7 @@ class DWIN_LCD:
 			bed_line = self.TUNE_CASE_TEMP + self.MROWS - self.index_tune
 
 		if (encoder_diffState == self.ENCODER_DIFF_ENTER):
-			self.pd.encoderRate = False
+			self.EncoderRateLimit = True
 			if (self.pd.HMI_ValueStruct.show_mode == -1):  # temperature
 				self.checkkey = self.TemperatureID
 				self.lcd.Draw_IntValue(
@@ -1429,41 +1438,25 @@ class DWIN_LCD:
 		encoder_diffState = self.get_encoder_state()
 		if (encoder_diffState == self.ENCODER_DIFF_NO):
 			return
-
 		zoff_line = 0
 		if self.pd.HMI_ValueStruct.show_mode == -4:
 			zoff_line = self.PREPARE_CASE_ZOFF + self.MROWS - self.index_prepare
 		else:
 			zoff_line = self.TUNE_CASE_ZOFF + self.MROWS - self.index_tune
 
-		if (encoder_diffState == self.ENCODER_DIFF_ENTER):
-			self.pd.encoderRate = False
+		if (encoder_diffState == self.ENCODER_DIFF_ENTER): #if (applyencoder(encoder_diffstate, offset_value))
+			self.EncoderRateLimit = True
 			if self.pd.HAS_BED_PROBE:
 				self.pd.offset_z(self.dwin_zoffset)
-			if (self.pd.HMI_ValueStruct.show_mode == -4):
-				self.checkkey = self.Prepare
-				if self.pd.HAS_BED_PROBE:
-					self.lcd.Draw_Signed_Float(
-						self.lcd.font8x16, self.lcd.Color_Bg_Black, 2, 2, 202, self.MBASE(zoff_line),
-						self.pd.BABY_Z_VAR * 100
-					)
-				else:
-					self.lcd.Draw_Signed_Float(
-						self.lcd.font8x16, self.lcd.Color_Bg_Black, 2, 2, 202, self.MBASE(zoff_line),
-						self.pd.HMI_ValueStruct.offset_value
-					)
 			else:
-				self.checkkey = self.Tune
-				if self.pd.HAS_BED_PROBE:
-					self.lcd.Draw_Signed_Float(
-						self.lcd.font8x16, self.lcd.Color_Bg_Black, 2, 2, 202, self.MBASE(zoff_line),
-						self.pd.BABY_Z_VAR * 100
-					)
-				else:
-					self.lcd.Draw_Signed_Float(
-						self.lcd.font8x16, self.lcd.Color_Bg_Black, 2, 2, 202, self.MBASE(zoff_line),
-						self.pd.HMI_ValueStruct.offset_value
-					)
+				self.pd.setZOffset(self.dwin_zoffset) # manually set
+
+			self.checkkey = self.Prepare if self.pd.HMI_ValueStruct.show_mode == -4 else self.Tune
+			self.lcd.Draw_Signed_Float(
+				self.lcd.font8x16, self.lcd.Color_Bg_Black, 2, 2, 202, self.MBASE(zoff_line),
+				self.pd.HMI_ValueStruct.offset_value
+			)
+
 			self.lcd.UpdateLCD()
 			return
 
@@ -1479,7 +1472,9 @@ class DWIN_LCD:
 
 		self.last_zoffset = self.dwin_zoffset
 		self.dwin_zoffset = self.pd.HMI_ValueStruct.offset_value / 100.0
-		self.pd.add_mm('Z', self.dwin_zoffset - self.last_zoffset)
+		if self.pd.HAS_BED_PROBE:
+			self.pd.add_mm('Z', self.dwin_zoffset - self.last_zoffset)
+
 		self.lcd.Draw_Signed_Float(
 			self.lcd.font8x16, self.lcd.Select_Color, 2, 2, 202,
 			self.MBASE(zoff_line),
@@ -1691,6 +1686,7 @@ class DWIN_LCD:
 
 	def Draw_Print_ProgressRemain(self):
 		remain_time = self.pd.remain()
+		if not remain_time: return #time remaining is None during warmup.
 		self.lcd.Draw_IntValue(True, True, 1, self.lcd.font8x16, self.lcd.Color_White, self.lcd.Color_Bg_Black, 2, 176, 212, remain_time / 3600)
 		self.lcd.Draw_String(False, False, self.lcd.font8x16, self.lcd.Color_White, self.lcd.Color_Bg_Black, 192, 212, ":")
 		self.lcd.Draw_IntValue(True, True, 1, self.lcd.font8x16, self.lcd.Color_White, self.lcd.Color_Bg_Black, 2, 200, 212, (remain_time % 3600) / 60)
@@ -1781,10 +1777,10 @@ class DWIN_LCD:
 		if self.pd.HAS_HEATED_BED:
 			self.lcd.Frame_AreaCopy(1, 240, 104, 264, 114, self.LBLX, self.MBASE(self.TUNE_CASE_BED))  # Bed...
 			self.lcd.Frame_AreaCopy(1, 1, 89, 83, 101, self.LBLX + 27, self.MBASE(self.TUNE_CASE_BED))  # ...Temperature
-		# if self.pd.HAS_FAN:
-		# 	self.lcd.Frame_AreaCopy(1, 0, 119, 64, 132, self.LBLX, self.MBASE(self.TUNE_CASE_FAN))  # Fan speed
-		# if self.pd.HAS_ZOFFSET_ITEM:
-		# 	self.lcd.Frame_AreaCopy(1, 93, 179, 141, 189, self.LBLX, self.MBASE(self.TUNE_CASE_ZOFF))  # Z-offset
+		if self.pd.HAS_FAN:
+		 	self.lcd.Frame_AreaCopy(1, 0, 119, 64, 132, self.LBLX, self.MBASE(self.TUNE_CASE_FAN))  # Fan speed
+		if self.pd.HAS_ZOFFSET_ITEM:
+		 	self.lcd.Frame_AreaCopy(1, 93, 179, 141, 189, self.LBLX, self.MBASE(self.TUNE_CASE_ZOFF))  # Z-offset
 		self.Draw_Back_First(self.select_tune.now == 0)
 		if (self.select_tune.now):
 			self.Draw_Menu_Cursor(self.select_tune.now)
@@ -1801,23 +1797,25 @@ class DWIN_LCD:
 				3, 216, self.MBASE(self.TUNE_CASE_TEMP),
 				self.pd.thermalManager['temp_hotend'][0]['target']
 			)
+
 		if self.pd.HAS_HEATED_BED:
 			self.Draw_Menu_Line(self.TUNE_CASE_BED, self.ICON_BedTemp)
 			self.lcd.Draw_IntValue(
 				True, True, 0, self.lcd.font8x16, self.lcd.Color_White, self.lcd.Color_Bg_Black,
 				3, 216, self.MBASE(self.TUNE_CASE_BED), self.pd.thermalManager['temp_bed']['target'])
-		# if self.pd.HAS_FAN:
-		# 	self.Draw_Menu_Line(self.TUNE_CASE_FAN, self.ICON_FanSpeed)
-		# 	self.lcd.Draw_IntValue(
-		# 		True, True, 0, self.lcd.font8x16, self.lcd.Color_White, self.lcd.Color_Bg_Black,
-		# 		3, 216, self.MBASE(self.TUNE_CASE_FAN),
-		# 		self.pd.thermalManager['fan_speed'][0]
-		# 	)
-		# if self.pd.HAS_ZOFFSET_ITEM:
-		# 	self.Draw_Menu_Line(self.TUNE_CASE_ZOFF, self.ICON_Zoffset)
-		# 	self.lcd.Draw_Signed_Float(
-		# 		self.lcd.font8x16, self.lcd.Color_Bg_Black, 2, 2, 202, self.MBASE(self.TUNE_CASE_ZOFF), self.pd.BABY_Z_VAR * 100
-		# 	)
+
+		if self.pd.HAS_FAN:
+		 	self.Draw_Menu_Line(self.TUNE_CASE_FAN, self.ICON_FanSpeed)
+		 	self.lcd.Draw_IntValue(
+		 		True, True, 0, self.lcd.font8x16, self.lcd.Color_White, self.lcd.Color_Bg_Black,
+		 		3, 216, self.MBASE(self.TUNE_CASE_FAN),
+		 		self.pd.thermalManager['fan_speed'][0]
+		 	)
+		if self.pd.HAS_ZOFFSET_ITEM:
+		 	self.Draw_Menu_Line(self.TUNE_CASE_ZOFF, self.ICON_Zoffset)
+		 	self.lcd.Draw_Signed_Float(
+		 		self.lcd.font8x16, self.lcd.Color_Bg_Black, 2, 2, 202, self.MBASE(self.TUNE_CASE_ZOFF), self.pd.BABY_Z_VAR * 100
+		 	)
 
 	def Draw_Temperature_Menu(self):
 		self.Clear_Main_Window()
@@ -1848,7 +1846,7 @@ class DWIN_LCD:
 			i += 1
 			self.Draw_Menu_Line(self.ICON_SetEndTemp + (self.TEMP_CASE_TEMP) - 1)
 			self.lcd.Draw_IntValue(
-				True, True, 0, self.lcd.font8x16, self.lcd.Color_White, self.lcd.Color_Bg_Black, 
+				True, True, 0, self.lcd.font8x16, self.lcd.Color_White, self.lcd.Color_Bg_Black,
 				3, 216, self.MBASE(i),
 				self.pd.thermalManager['temp_hotend'][0]['target']
 			)
@@ -1951,8 +1949,9 @@ class DWIN_LCD:
 
 		# Copy into filebuf string before entry
 		name = self.pd.file_name
-		npos = _MAX(0, self.lcd.DWIN_WIDTH - len(name) * self.MENU_CHR_W) / 2
-		self.lcd.Draw_String(False, False, self.lcd.font8x16, self.lcd.Color_White, self.lcd.Color_Bg_Black, npos, 60, name)
+		if name:
+			npos = _MAX(0, self.lcd.DWIN_WIDTH - len(name) * self.MENU_CHR_W) / 2
+			self.lcd.Draw_String(False, False, self.lcd.font8x16, self.lcd.Color_White, self.lcd.Color_Bg_Black, npos, 60, name)
 
 		self.lcd.ICON_Show(self.ICON, self.ICON_PrintTime, 17, 193)
 		self.lcd.ICON_Show(self.ICON, self.ICON_RemainTime, 150, 191)
@@ -2215,9 +2214,10 @@ class DWIN_LCD:
 		update = self.pd.update_variable()
 		if self.last_status != self.pd.status:
 			self.last_status = self.pd.status
-			if self.pd.status == "Printing":
+			print(self.pd.status)
+			if self.pd.status == 'printing':
 				self.Goto_PrintProcess()
-			elif self.pd.status == "Operational":
+			elif self.pd.status in ['operational', 'complete', 'standby', 'cancelled']:
 				self.Goto_MainMenu()
 
 		if (self.checkkey == self.PrintProcess):
@@ -2311,7 +2311,7 @@ class DWIN_LCD:
 			self.HMI_StepXYZE()
 
 	def get_encoder_state(self):
-		if not self.EncoderRate:
+		if self.EncoderRateLimit:
 			if self.EncodeMS > current_milli_time():
 				return self.ENCODER_DIFF_NO
 			self.EncodeMS = current_milli_time() + self.ENCODER_WAIT
@@ -2323,6 +2323,9 @@ class DWIN_LCD:
 			self.EncodeLast = self.encoder.value
 			return self.ENCODER_DIFF_CCW
 		elif not GPIO.input(self.button_pin):
+			if self.EncodeEnter > current_milli_time(): # prevent double clicks
+				return self.ENCODER_DIFF_NO
+			self.EncodeEnter = current_milli_time() + self.ENCODER_WAIT_ENTER
 			return self.ENCODER_DIFF_ENTER
 		else:
 			return self.ENCODER_DIFF_NO

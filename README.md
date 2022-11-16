@@ -1,6 +1,6 @@
 # DWIN_T5UIC1_LCD
 
-## Python class for the Ender 3 V2 LCD runing klipper3d with OctoPrint / Moonraker 
+## Python class for the Ender 3 V2 LCD runing klipper3d with Moonraker 
 
 https://www.klipper3d.org
 
@@ -43,7 +43,7 @@ To:
 
   `sudo pip3 install multitimer`
 
-  `git clone https://github.com/odwdinc/DWIN_T5UIC1_LCD.git`
+  `git clone https://github.com/bustedlogic/DWIN_T5UIC1_LCD.git`
 
 
 ### Wire the display 
@@ -56,16 +56,48 @@ To:
   * Vcc =   2   (5v)
   * Gnd =   6   (GND)
 
+Here's a diagram based on my color selection:
+
+<img src ="images/GPIO.png?raw=true" width="325" height="75">
+<img src ="images/panel.png?raw=true" width="325" height="180">
+
+I tried to take some images to help out with this: You don't have to use the color of wiring that I used:
+
+<img src ="images/wire1.png?raw=true" width="200" height="400"> <img src ="images/wire2.png?raw=true" width="200" height="400">
+
+<img src ="images/wire3.png?raw=true" width="400" height="200">
+
+<img src ="images/wire4.png?raw=true" width="400" height="300">
+
 ### Run The Code
 
 Enter the downloaded DWIN_T5UIC1_LCD folder.
-Make new file run.py and add
+Make new file run.py and copy/paste in the following (pick one)
 
+For an Ender3v2
 ```python
 #!/usr/bin/env python3
 from dwinlcd import DWIN_LCD
 
 encoder_Pins = (26, 19)
+button_Pin = 13
+LCD_COM_Port = '/dev/ttyAMA0'
+API_Key = 'XXXXXX'
+
+DWINLCD = DWIN_LCD(
+	LCD_COM_Port,
+	encoder_Pins,
+	button_Pin,
+	API_Key
+)
+```
+
+If your control wheel is reversed (Voxelab Aquila) use this instead.
+```python
+#!/usr/bin/env python3
+from dwinlcd import DWIN_LCD
+
+encoder_Pins = (19, 26)
 button_Pin = 13
 LCD_COM_Port = '/dev/ttyAMA0'
 API_Key = 'XXXXXX'
