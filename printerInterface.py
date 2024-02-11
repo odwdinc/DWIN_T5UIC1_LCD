@@ -250,7 +250,7 @@ class PrinterData:
 		self.op = octoprintSocket(octoPrint_URL, 80, octoPrint_API_Key)
 		self.status = None
 		print(self.op.base_address)
-		self.ks = klippySocket('/tmp/klippy_uds', callback=self.klippy_callback)
+		self.ks = KlippySocket('/tmp/klippy_uds', callback=self.klippy_callback)
 		subscribe = {
 			"id": 4001,
 			"method": "objects/subscribe",
